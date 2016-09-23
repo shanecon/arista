@@ -7,6 +7,7 @@ import pexpect
 import sys
 import re
 import getpass
+import threading
 
 __author__ = ['shane']
 __version__ = "Feb 2016"
@@ -20,7 +21,7 @@ def get_user_info():
     Tuple: (password)
   """
   password = getpass.getpass('LDAP Password: ')
-  if len(password) > 8:
+  if len(password) > 6:
     return (password)
   else:
     print('Password entered is less than 8 characters long')
@@ -31,7 +32,7 @@ arista_devices = (
 "router1",
 "router2",
 "router3",
-"router4",
+"router4"
 )
 
 # remove device name from pexpect output string
@@ -39,26 +40,33 @@ def split_arista_devices(arista_devices):
    arista = arista_devices.split('.')
    return arista[0]
 
+def arista_error(a):
+    arista_switch = pexpect.spawn ('ssh -p 22 -o "StrictHostKeyChecking=no" %s'\
+     %a)
+    arista_switch.maxread = 5000
+    arista_switch.expect('[pP]assword:')
+    arista_switch.sendline('%s' %password)
+    arista_switch.expect('#')
+    arista_switch.sendline('senz')
+    arista_switch.expect('.*')
+    arista_switch.expect ('#')
+    # len of 110 or 118 means no port errors, skip printing device
+    # information
+    if len(arista_switch.before) == 110 or len(arista_switch.before) == 118:
+        arista_switch.sendline ('exit')
+    else:
+        print "\n%s_interface errors:\n" %a, arista_switch.before.replace\
+        (split_arista_devices(a),'')
+        print "%s" %format_string
+        arista_switch.sendline ('exit')
+
 if __name__ == '__main__':
+   format_string = "*" * 76
    password = get_user_info()
    # loop through arista devices login with ssh run senz and report interfaces
    #  with error counts > 0
+   threads = []
    for a in arista_devices:
-      arista_switch = pexpect.spawn ('ssh -p 22 -o "StrictHostKeyChecking=no"\
-      %s' %a)
-      arista_switch.maxread = 5000
-      arista_switch.expect('[pP]assword:')
-      arista_switch.sendline('%s' %password)
-      arista_switch.expect('#')
-      arista_switch.sendline('senz') #  alias show interface counter error | nz
-      arista_switch.expect('.*')
-      arista_switch.expect ('#')
-      # len of 110 or 118 means no port errors, skip printing device
-      # information
-      if len(arista_switch.before) == 110 or len(arista_switch.before) == 118:
-         arista_switch.sendline ('exit')
-         continue
-      print "\n%s_interface errors:\n" %a, arista_switch.before.replace\
-      (split_arista_devices(a),'')
-      print "%s" %format_string
-      arista_switch.sendline ('exit')
+       t = threading.Thread(target=arista_error, args=(a,))
+       threads.append(t)
+       t.start()
